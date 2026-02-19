@@ -172,7 +172,6 @@ class CameraFragment : Fragment() {
                 .also {
                     it.setAnalyzer(cameraExecutor) { imageProxy ->
                         val bitmap = imageProxy.toBitmap()
-                        val processedBitmap = processWithOpenCV(bitmap)  // already rotated 90° CW
                         val modelMask = ModelUtils.runInference(requireContext(), bitmap)  // feed rotated bitmap
 
                         requireActivity().runOnUiThread {
