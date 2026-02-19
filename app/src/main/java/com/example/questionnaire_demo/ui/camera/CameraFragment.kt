@@ -172,14 +172,11 @@ class CameraFragment : Fragment() {
                 .also {
                     it.setAnalyzer(cameraExecutor) { imageProxy ->
                         val bitmap = imageProxy.toBitmap()
-
-                        // Run both — OpenCV finds the quad outline, model finds the page mask
-                        val opencvResult = processWithOpenCV(bitmap)
-                        val modelMask = ModelUtils.runInference(requireContext(), bitmap)
+                        val processedBitmap = processWithOpenCV(bitmap)  // already rotated 90° CW
+                        val modelMask = ModelUtils.runInference(requireContext(), bitmap)  // feed rotated bitmap
 
                         requireActivity().runOnUiThread {
                             _binding?.overlayImageView?.setImageBitmap(modelMask)
-                            // or blend opencvResult and modelMask however you like
                         }
 
                         imageProxy.close()
