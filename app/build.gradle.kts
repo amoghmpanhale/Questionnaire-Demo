@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.example.questionnaire_demo"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.questionnaire_demo"
@@ -40,6 +40,7 @@ android {
 
 dependencies {
 
+    implementation(libs.material.v1130)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
