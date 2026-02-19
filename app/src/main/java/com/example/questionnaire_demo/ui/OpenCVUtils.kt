@@ -514,4 +514,63 @@ object OpenCVUtils {
             Imgproc.circle(mat, Point(point.x, point.y), 10, cornerColor, -1)
         }
     }
+
+    private fun orderCorners(corners: Array<Point>): List<Point> {
+        val tl = corners.minByOrNull { it.x + it.y }!!
+        val br = corners.maxByOrNull { it.x + it.y }!!
+        val tr = corners.minByOrNull { it.y - it.x }!!
+        val bl = corners.maxByOrNull { it.y - it.x }!!
+        return listOf(tl, tr, br, bl)
+    }
+
+    fun perspectiveCorrect(bitmap: Bitmap, corners: Array<Point>): Bitmap {
+        require(corners.size == 4) { "Need exactly 4 corners" }
+
+        val inputMat  = Mat()
+        val outputMat = Mat()
+
+        try {
+            Utils.bitmapToMat(bitmap, inputMat)
+
+            // ── Step 1: Order corners TL → TR → BR → BL ──────────────────────
+            val ordered = orderCorners(corners)
+            val (tl, tr, br, bl) = ordered
+
+            // ── Step 2: Compute output dimensions (portrait assumed) ───────────
+            fun dist(a: Point, b: Point) =
+                sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
+
+            val outputHeight = maxOf(dist(tl, bl), dist(tr, br)).toInt()
+            val outputWidth  = (outputHeight / 1.414).toInt()  // √2 = A4/Letter aspect ratio
+
+            // ── Step 3: Build the transform ───────────────────────────────────
+            val srcPoints = MatOfPoint2f(tl, tr, br, bl)
+            val dstPoints = MatOfPoint2f(
+                Point(0.0,                    0.0),
+                Point(outputWidth.toDouble(), 0.0),
+                Point(outputWidth.toDouble(), outputHeight.toDouble()),
+                Point(0.0,                    outputHeight.toDouble())
+            )
+
+            val H = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
+
+            Imgproc.warpPerspective(
+                inputMat, outputMat, H,
+                org.opencv.core.Size(outputWidth.toDouble(), outputHeight.toDouble())
+            )
+
+            val result = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(outputMat, result)
+
+            srcPoints.release()
+            dstPoints.release()
+            H.release()
+
+            return result
+
+        } finally {
+            inputMat.release()
+            outputMat.release()
+        }
+    }
 }

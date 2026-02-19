@@ -3,6 +3,7 @@ package com.example.questionnaire_demo.ui.camera
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -17,6 +18,12 @@ object ModelUtils {
     private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
     private val STD  = floatArrayOf(0.229f, 0.224f, 0.225f)
     private const val MODEL_INPUT_SIZE = 256
+
+    var lastQuadCorners: Array<Point>? = null
+        private set
+
+    var lastQuadCornersNormalized: Array<Point>? = null
+        private set
 
     fun loadModel(context: Context): Module {
         module?.let { return it }
@@ -86,10 +93,21 @@ object ModelUtils {
         // Draw filled quad onto a blank black Mat, then convert back to Bitmap
         val filled = Mat.zeros(src.size(), CvType.CV_8UC4)
         // Green fill: RGBA = (0, 255, 0, 255)
-        Imgproc.fillConvexPoly(filled, quadPoints, Scalar(0.0, 255.0, 0.0, 255.0))
+        Imgproc.fillConvexPoly(filled, quadPoints, Scalar(52.0, 174.0, 235.0, 120.0))
 
         val result = Bitmap.createBitmap(maskBitmap.width, maskBitmap.height, Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(filled, result)
+
+        // Save corners so callers can retrieve them after runInference
+        lastQuadCorners = quadPoints.toArray()
+
+        lastQuadCornersNormalized = quadPoints.toArray().map { point ->
+            Point(point.x / src.cols(), point.y / src.rows())
+        }.toTypedArray()
+
+        Log.d("ModelUtils", "src size: ${src.cols()}x${src.rows()}")
+        Log.d("ModelUtils", "raw quad corners: ${quadPoints.toArray().toList()}")
+        Log.d("ModelUtils", "normalized corners: ${lastQuadCornersNormalized?.toList()}")
 
         // Clean up native Mats to avoid memory leaks
         src.release(); gray.release(); binary.release()
@@ -143,6 +161,31 @@ object ModelUtils {
 
         // ── STEP 5: rotate output mask to match screen orientation ─────────
         val matrix = Matrix().apply { postRotate(90f) }
+
+        Log.d("ModelUtils", "input bitmap size: ${bitmap.width}x${bitmap.height}")
+        Log.d("ModelUtils", "scaledMask size: ${scaledMask.width}x${scaledMask.height}")
+        Log.d("ModelUtils", "after 90° rotation output size: ${scaledMask.width}x${scaledMask.height}")
+
         return Bitmap.createBitmap(scaledMask, 0, 0, scaledMask.width, scaledMask.height, matrix, true)
+    }
+
+    /**
+     * Returns the 4 quad corners scaled from model resolution (256×256)
+     * to the given target dimensions, and rotated 90° to match screen orientation.
+     *
+     * Returns null if no inference has been run yet.
+     */
+    fun getScaledQuadCorners(targetWidth: Int, targetHeight: Int): Array<Point>? {
+        val corners = lastQuadCorners ?: return null
+        val scaleX = targetWidth.toDouble() / MODEL_INPUT_SIZE
+        val scaleY = targetHeight.toDouble() / MODEL_INPUT_SIZE
+
+        // Mirror the rotation applied to the mask bitmap in runInference (90° clockwise)
+        // Original point (x, y) in a 256×256 space →
+        // After 90° CW rotation into (targetWidth × targetHeight): (y * scaleX, (256 - x) * scaleY)
+        return Array(corners.size) { i ->
+            val p = corners[i]
+            Point(p.y * scaleX, (MODEL_INPUT_SIZE - p.x) * scaleY)
+        }
     }
 }

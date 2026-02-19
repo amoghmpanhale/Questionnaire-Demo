@@ -110,8 +110,6 @@ class CameraFragment : Fragment() {
                     val bitmap = image.toBitmap()
                     image.close() // always close before any early returns
 
-                    val processedBitmap = processWithOpenCV(bitmap)
-
                     val stream = java.io.ByteArrayOutputStream()
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, stream)
                     val byteArray = stream.toByteArray()

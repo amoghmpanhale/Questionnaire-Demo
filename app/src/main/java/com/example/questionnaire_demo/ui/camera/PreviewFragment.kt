@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +15,7 @@ import com.example.questionnaire_demo.databinding.FragmentPreviewBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.opencv.core.Point
 
 class PreviewFragment : Fragment() {
 
@@ -43,15 +45,34 @@ class PreviewFragment : Fragment() {
                 val bitmap = withContext(Dispatchers.IO) {
                     val raw = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
 
-                    // The JPEG buffer from ImageProxy doesn't have rotation baked in —
-                    // it's stored as metadata. We must apply it ourselves with a Matrix.
-                    // rotationDegrees comes from ImageProxy.imageInfo.rotationDegrees.
-                    if (rotationDegrees != 0) {
+                    val rotated = if (rotationDegrees != 0) {
                         val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
                         Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
-                            .also { if (it !== raw) raw.recycle() } // avoid leaking the original
+                            .also { if (it !== raw) raw.recycle() }
                     } else {
                         raw
+                    }
+
+                    // Apply perspective correction if we have corners from the last inference frame.
+                    // getScaledQuadCorners maps the 256×256 model-space corners up to the
+                    // rotated bitmap's actual dimensions before we pass them to the warp.
+                    val normalized = ModelUtils.lastQuadCornersNormalized
+                    val corners = normalized?.map { p ->
+                        // The analysis frame is landscape (640×480) but captured photo is portrait (4096×3072).
+                        // Swap x↔y and invert the new x axis to account for the 90° rotation between them.
+                        Point(
+                            (1.0 - p.y) * rotated.width,
+                            p.x * rotated.height
+                        )
+                    }?.toTypedArray()
+                    Log.d("PreviewFragment", "rotated bitmap: ${rotated.width}x${rotated.height}")
+                    Log.d("PreviewFragment", "normalized corners: ${normalized?.toList()}")
+                    Log.d("PreviewFragment", "scaled corners: ${corners?.toList()}")
+                    if (corners != null) {
+                        OpenCVUtils.perspectiveCorrect(rotated, corners)
+                            .also { if (it !== rotated) rotated.recycle() }
+                    } else {
+                        rotated  // no detection — show the plain rotated image
                     }
                 }
                 // Back on main thread — safe to touch Views now
