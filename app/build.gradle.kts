@@ -29,14 +29,22 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-//        sourceCompatibility = JavaVersion.VERSION_1_8
-//        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
         jvmTarget = "11"
     }
+
     buildFeatures {
         viewBinding = true
+    }
+
+    packaging {
+        jniLibs {
+            pickFirsts.add("lib/arm64-v8a/libc++_shared.so")
+            pickFirsts.add("lib/x86_64/libc++_shared.so")
+            pickFirsts.add("lib/x86/libc++_shared.so")
+            pickFirsts.add("lib/armeabi-v7a/libc++_shared.so")
+        }
     }
 }
 
@@ -64,4 +72,8 @@ dependencies {
     implementation("androidx.camera:camera-view:${camerax_version}")
     implementation("androidx.camera:camera-extensions:${camerax_version}")
     implementation("androidx.camera:camera-core:${camerax_version}")
+
+    // PyTorch Dependencies
+    implementation("org.pytorch:pytorch_android:2.1.0")
+    implementation("org.pytorch:pytorch_android_torchvision:2.1.0")
 }
