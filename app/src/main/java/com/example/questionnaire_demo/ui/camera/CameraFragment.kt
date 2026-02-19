@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -23,11 +24,19 @@ import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import com.example.questionnaire_demo.R
 import com.example.questionnaire_demo.databinding.FragmentCameraBinding
+import org.opencv.android.OpenCVLoader
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 
 class CameraFragment : Fragment() {
 
@@ -69,6 +78,11 @@ class CameraFragment : Fragment() {
         // Single-thread executor: camera frame processing is sequential,
         // so one background thread is sufficient and keeps ordering guarantees.
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        if (!OpenCVLoader.initLocal()) {
+            Log.e(TAG, "OpenCV failed to load")
+            return
+        }
     }
 
     /**
@@ -79,43 +93,46 @@ class CameraFragment : Fragment() {
     private fun takePhoto() {
         val imageCapture = imageCapture ?: return
 
-        // In-memory capture — no OutputFileOptions, no disk write.
-        // CameraX calls back with an ImageProxy containing the raw image buffer.
+        // Pass cameraExecutor here so the ImageProxy callback fires on our
+        // background thread — toBitmap() and JPEG compression stay off the main thread.
         imageCapture.takePicture(
-            ContextCompat.getMainExecutor(requireContext()),
+            cameraExecutor,  // background thread instead of mainExecutor
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onError(exc: ImageCaptureException) {
                     Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
                 }
 
                 override fun onCaptureSuccess(image: ImageProxy) {
-                    // ImageProxy wraps a YUV or JPEG buffer depending on device.
-                    // toBitmap() is a CameraX extension function that handles
-                    // the format conversion and rotation correction for you.
+                    // We're already on cameraExecutor (background thread), so
+                    // toBitmap() + compress don't block the UI at all.
+                    val rotationDegrees = image.imageInfo.rotationDegrees
+
                     val bitmap = image.toBitmap()
+                    image.close() // always close before any early returns
 
-                    // Always close ImageProxy when done — it holds a camera buffer
-                    // slot. If you forget, the camera pipeline stalls.
-                    image.close()
+                    val processedBitmap = processWithOpenCV(bitmap)
 
-                    // Compress to JPEG bytes so we can pass it as a Bundle argument.
-                    // Bitmaps are Parcelable but too large/risky to pass directly —
-                    // the Binder IPC buffer has a ~1MB limit and will throw a
-                    // TransactionTooLargeException on high-res images.
                     val stream = java.io.ByteArrayOutputStream()
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, stream)
                     val byteArray = stream.toByteArray()
 
-                    // Navigate to the preview screen, carrying the image bytes.
+                    // Bundle args and navigate — findNavController().navigate() is
+                    // safe to call from a background thread in Navigation Component.
                     val bundle = Bundle().apply {
                         putByteArray("captured_image", byteArray)
+                        // Pass the rotation so PreviewFragment can correct the orientation.
+                        // ImageProxy gives us the degrees the image needs to be rotated
+                        // clockwise to appear upright (0, 90, 180, or 270).
+                        putInt("rotation_degrees", rotationDegrees)
                     }
-                    // Make sure you have a nav action set up from cameraFragment
-                    // to previewFragment in your nav graph.
-                    findNavController().navigate(
-                        R.id.action_cameraFragment_to_previewFragment,
-                        bundle
-                    )
+
+                    // navigate() must be called on the main thread
+                    requireActivity().runOnUiThread {
+                        findNavController().navigate(
+                            R.id.action_cameraFragment_to_previewFragment,
+                            bundle
+                        )
+                    }
                 }
             }
         )
@@ -149,6 +166,22 @@ class CameraFragment : Fragment() {
             // Select the rear camera as default.
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor) { imageProxy ->
+                        val bitmap = imageProxy.toBitmap()
+                        val processedBitmap = processWithOpenCV(bitmap)
+
+                        requireActivity().runOnUiThread {
+                            _binding?.overlayImageView?.setImageBitmap(processedBitmap)
+                        }
+
+                        imageProxy.close() // critical — don't forget or the camera freezes
+                    }
+                }
+
             try {
                 // Unbind any previously bound use cases before rebinding —
                 // a use case can only be bound to one lifecycle at a time.
@@ -161,7 +194,8 @@ class CameraFragment : Fragment() {
                     viewLifecycleOwner,
                     cameraSelector,
                     preview,
-                    imageCapture  // <-- must be bound here to enable photo capture
+                    imageCapture,
+                    imageAnalysis
                 )
 
             } catch (exc: Exception) {
@@ -207,6 +241,8 @@ class CameraFragment : Fragment() {
         // but the Fragment instance may live on (e.g. in the back stack).
         _binding = null
     }
+
+    private fun processWithOpenCV(bitmap: Bitmap): Bitmap = OpenCVUtils.detectPageQuad(bitmap)
 
     companion object {
         private const val TAG = "CameraXApp"

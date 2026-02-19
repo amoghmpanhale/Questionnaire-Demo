@@ -12,11 +12,18 @@
         android:scaleType="fitCenter"
         android:contentDescription="Captured photo preview" />
 
+    <!--
+        The BottomNavigationView in MainActivity sits on top of the fragment's
+        window. Without this margin the button renders directly behind the nav bar.
+        56dp is the standard BottomNavigationView height per Material spec.
+        Alternatively you could use windowInsets, but a fixed margin is simpler
+        and reliable for a fixed bottom nav setup like this one.
+    -->
     <Button
         android:id="@+id/retakeButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="40dp"
+        android:layout_marginBottom="96dp"
         android:text="Retake"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"

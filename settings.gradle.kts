@@ -19,5 +19,13 @@ dependencyResolutionManagement {
     }
 }
 
+val opencvsdk = File(rootProject.projectDir, "local.properties")
+    .inputStream().use { java.util.Properties().apply { load(it) } }
+    .getProperty("opencv.sdk.path")
+
+include(":sdk")
+project(":sdk").projectDir = File("$opencvsdk")
+
 rootProject.name = "Questionnaire-Demo"
 include(":app")
+
